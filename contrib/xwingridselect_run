@@ -1,3 +1,0 @@
-#!/bin/bash
-
-exec `(for x in $(echo $PATH|sed s/:/\ /g); do /bin/ls -1 $x; done) | sort -u | xwingridselect -rp $@` & exit

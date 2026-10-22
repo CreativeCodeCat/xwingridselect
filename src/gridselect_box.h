@@ -24,7 +24,7 @@ typedef struct _GridBoxClass GridBoxClass;
 
 struct _GridBox
 {
-  GtkDrawingArea parent;
+  GtkWidget parent;
 
   /*< private >*/
   gchar *name;
@@ -37,7 +37,7 @@ struct _GridBox
 
 struct _GridBoxClass
 {
-  GtkDrawingAreaClass parent_class;
+  GtkWidgetClass parent_class;
 
   void (* clicked)  (GridBox *box);
 };

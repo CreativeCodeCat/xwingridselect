@@ -48,8 +48,12 @@ extern Atom a_NET_WM_WINDOW_TYPE_NORMAL;
 
 extern Atom a_NET_WM_STATE;
 extern Atom a_NET_WM_STATE_SKIP_TASKBAR;
+extern Atom a_NET_WM_STATE_SKIP_PAGER;
+extern Atom a_NET_WM_STATE_ABOVE;
 
 
+Display* x11_display ();
+Window x11_root ();
 void atoms_init ();
 void* property (Window win, Atom prop, Atom type, int *nitems);
 void climsg(Window win, long type, long l0, long l1, long l2, long l3, long l4);
