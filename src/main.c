@@ -200,6 +200,15 @@ int main (int argc, char **argv)
     }
 
     g_set_prgname ("xwingridselect");
+#ifdef X11
+    // This program talks to the display server directly via Xlib/EWMH
+    // (window listing, XShape cutout, window positioning), so it only
+    // works on the X11 backend. GTK4 defaults to Wayland when available
+    // and, unlike GTK2, can be built with both backends at once -- without
+    // forcing X11 here, every gdk_x11_* call below runs against a Wayland
+    // GdkDisplay/GdkSurface and crashes.
+    gdk_set_allowed_backends ("x11");
+#endif
     gtk_init ();
 
 #ifdef X11
