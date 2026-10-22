@@ -1,11 +1,11 @@
 find_package (PkgConfig)
 
 IF(UNIX)
-    pkg_check_modules (DEPS REQUIRED gtk+-2.0 x11)
+    pkg_check_modules (DEPS REQUIRED gtk4 x11 xext)
 ENDIF(UNIX)
 
 IF(WIN32)
-    pkg_check_modules (DEPS REQUIRED gtk+-2.0)
+    pkg_check_modules (DEPS REQUIRED gtk4)
 ENDIF(WIN32)
 
 set (CFLAGS ${DEPS_CFLAGS}
