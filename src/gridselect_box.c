@@ -16,22 +16,80 @@ static GObject *gridselect_box_constructor (GType gtype,
 					guint n_properties,
 					GObjectConstructParam *properties);
 static void gridselect_box_dispose (GObject *gobject);
-static void gridselect_box_realize (GtkWidget *widget);
-static void gridselect_box_size_request (GtkWidget *widget, GtkRequisition *requisition);
-static void gridselect_box_size_allocate (GtkWidget *widget,GtkAllocation *allocation);
-
-static gboolean gridselect_box_button_press (GtkWidget *widget, GdkEventButton *event);
-static gboolean gridselect_box_button_release (GtkWidget *widget, GdkEventButton *event);
-static gboolean gridselect_box_key_press (GtkWidget *widget, GdkEventKey *event);
-static gboolean gridselect_box_key_release (GtkWidget *widget, GdkEventKey *event);
-static gboolean gridselect_box_enter_notify (GtkWidget *widget, GdkEventCrossing *event);
-static gboolean gridselect_box_leave_notify (GtkWidget *widget, GdkEventCrossing *event);
+static void gridselect_box_measure (GtkWidget *widget, GtkOrientation orientation, int for_size,
+				     int *minimum, int *natural, int *minimum_baseline, int *natural_baseline);
 
 static void gridselect_box_clicked (GridBox *box);
 
 static guint box_signals[LAST_SIGNAL] = { 0 };
 
-G_DEFINE_TYPE (GridBox, gridselect_box, GTK_TYPE_DRAWING_AREA);
+G_DEFINE_TYPE (GridBox, gridselect_box, GTK_TYPE_WIDGET);
+
+static void on_box_pressed (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer data)
+{
+  GridBox *box = GRIDSELECT_BOX (data);
+
+  if (gtk_widget_get_focusable (GTK_WIDGET (box))) {
+    box->box_down = TRUE;
+    gtk_widget_grab_focus (GTK_WIDGET (box));
+  }
+}
+
+static void on_box_released (GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer data)
+{
+  GridBox *box = GRIDSELECT_BOX (data);
+
+  if (gtk_widget_get_focusable (GTK_WIDGET (box)) && box->on_box && box->box_down)
+    gridselect_box_clicked (box);
+  box->box_down = FALSE;
+}
+
+static gboolean on_box_key_pressed (GtkEventControllerKey *controller, guint keyval, guint keycode,
+				     GdkModifierType state, gpointer data)
+{
+  GridBox *box = GRIDSELECT_BOX (data);
+
+  if ((keyval == GDK_KEY_Return ||
+       keyval == GDK_KEY_KP_Enter ||
+       keyval == GDK_KEY_ISO_Enter) &&
+      gtk_widget_get_focusable (GTK_WIDGET (box)))
+    box->box_down = TRUE;
+
+  return FALSE;
+}
+
+static gboolean on_box_key_released (GtkEventControllerKey *controller, guint keyval, guint keycode,
+				      GdkModifierType state, gpointer data)
+{
+  GridBox *box = GRIDSELECT_BOX (data);
+
+  if ((keyval == GDK_KEY_Return ||
+       keyval == GDK_KEY_KP_Enter ||
+       keyval == GDK_KEY_ISO_Enter) &&
+      box->box_down &&
+      gtk_widget_get_focusable (GTK_WIDGET (box))) {
+    gridselect_box_clicked (box);
+    box->box_down = FALSE;
+  }
+
+  return FALSE;
+}
+
+static void on_box_enter (GtkEventControllerMotion *controller, gdouble x, gdouble y, gpointer data)
+{
+  GridBox *box = GRIDSELECT_BOX (data);
+
+  box->on_box = TRUE;
+  gtk_widget_queue_draw (GTK_WIDGET (box));
+}
+
+static void on_box_leave (GtkEventControllerMotion *controller, gpointer data)
+{
+  GridBox *box = GRIDSELECT_BOX (data);
+
+  box->on_box = FALSE;
+  gtk_widget_queue_draw (GTK_WIDGET (box));
+}
 
 static void
 gridselect_box_class_init (GridBoxClass *klass)
@@ -45,15 +103,7 @@ gridselect_box_class_init (GridBoxClass *klass)
   gobject_class->constructor = gridselect_box_constructor;
   gobject_class->dispose = gridselect_box_dispose;
 
-  widget_class->realize = gridselect_box_realize;
-  widget_class->size_request = gridselect_box_size_request;
-  widget_class->size_allocate = gridselect_box_size_allocate;
-  widget_class->button_press_event = gridselect_box_button_press;
-  widget_class->button_release_event = gridselect_box_button_release;
-  widget_class->key_press_event = gridselect_box_key_press;
-  widget_class->key_release_event = gridselect_box_key_release;
-  widget_class->enter_notify_event = gridselect_box_enter_notify;
-  widget_class->leave_notify_event = gridselect_box_leave_notify;
+  widget_class->measure = gridselect_box_measure;
 
   klass->clicked = NULL;
 
@@ -70,10 +120,26 @@ gridselect_box_class_init (GridBoxClass *klass)
 static void
 gridselect_box_init (GridBox *box)
 {
-  gtk_widget_set_can_focus (GTK_WIDGET (box), TRUE);
+  gtk_widget_set_focusable (GTK_WIDGET (box), TRUE);
   gtk_widget_set_receives_default (GTK_WIDGET (box), TRUE);
 
   box->name = NULL;
+
+  GtkGesture *click = gtk_gesture_click_new ();
+  gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (click), GDK_BUTTON_PRIMARY);
+  g_signal_connect (click, "pressed", G_CALLBACK (on_box_pressed), box);
+  g_signal_connect (click, "released", G_CALLBACK (on_box_released), box);
+  gtk_widget_add_controller (GTK_WIDGET (box), GTK_EVENT_CONTROLLER (click));
+
+  GtkEventController *keys = gtk_event_controller_key_new ();
+  g_signal_connect (keys, "key-pressed", G_CALLBACK (on_box_key_pressed), box);
+  g_signal_connect (keys, "key-released", G_CALLBACK (on_box_key_released), box);
+  gtk_widget_add_controller (GTK_WIDGET (box), keys);
+
+  GtkEventController *motion = gtk_event_controller_motion_new ();
+  g_signal_connect (motion, "enter", G_CALLBACK (on_box_enter), box);
+  g_signal_connect (motion, "leave", G_CALLBACK (on_box_leave), box);
+  gtk_widget_add_controller (GTK_WIDGET (box), motion);
 }
 
 static GObject*	gridselect_box_constructor (GType gtype,
@@ -119,150 +185,15 @@ gridselect_box_dispose (GObject *gobject)
   G_OBJECT_CLASS (gridselect_box_parent_class)->dispose (gobject);
 }
 
-static void gridselect_box_realize (GtkWidget *widget)
+static void gridselect_box_measure (GtkWidget *widget, GtkOrientation orientation, int for_size,
+				     int *minimum, int *natural, int *minimum_baseline, int *natural_baseline)
 {
-  GdkWindowAttr attributes;
-  gint attributes_mask;
+  int size = (orientation == GTK_ORIENTATION_HORIZONTAL) ? BOX_DEFAULT_WIDTH : BOX_DEFAULT_HEIGHT;
 
-  g_return_if_fail (GRIDSELECT_IS_BOX (widget));
-
-  gtk_widget_set_realized (widget, TRUE);
-
-  attributes.window_type = GDK_WINDOW_CHILD;
-  attributes.x = widget->allocation.x;
-  attributes.y = widget->allocation.y;
-  attributes.width = widget->allocation.width;
-  attributes.height = widget->allocation.height;
-  attributes.wclass = GDK_INPUT_OUTPUT;
-  attributes.event_mask = gtk_widget_get_events (widget);
-  attributes.event_mask |= (GDK_EXPOSURE_MASK |
-			    GDK_BUTTON_PRESS_MASK |
-			    GDK_BUTTON_RELEASE_MASK |
-			    GDK_ENTER_NOTIFY_MASK |
-			    GDK_LEAVE_NOTIFY_MASK);
-
-  attributes.visual = gtk_widget_get_visual (widget);
-  attributes.colormap = gtk_widget_get_colormap (widget);
-
-  attributes_mask = GDK_WA_X | GDK_WA_Y | GDK_WA_VISUAL | GDK_WA_COLORMAP;
-
-  widget->window = gdk_window_new (gtk_widget_get_parent_window (widget),
-				   &attributes, attributes_mask);
-
-  gdk_window_set_user_data (widget->window, widget);
-
-  widget->style = gtk_style_attach (widget->style, widget->window);
-}
-
-static void gridselect_box_size_request (GtkWidget *widget, GtkRequisition *requisition)
-{
-  requisition->width = BOX_DEFAULT_WIDTH;
-  requisition->height = BOX_DEFAULT_HEIGHT;
-}
-
-static void gridselect_box_size_allocate (GtkWidget *widget, GtkAllocation *allocation)
-{
-  g_return_if_fail (GRIDSELECT_IS_BOX (widget));
-  g_return_if_fail (allocation != NULL);
-
-  GTK_WIDGET_CLASS (gridselect_box_parent_class)->size_allocate (widget, allocation);
-
-  widget->allocation = *allocation;
-  if (gtk_widget_get_realized (widget)) {
-    gdk_window_move_resize (widget->window,
-			    allocation->x, allocation->y,
-			    allocation->width, allocation->height);
-  }
-}
-
-static gboolean gridselect_box_button_press (GtkWidget *widget, GdkEventButton *event)
-{
-  GridBox *box;
-
-  if (event->type == GDK_BUTTON_PRESS && gtk_widget_get_can_focus (widget))
-  {
-    box = GRIDSELECT_BOX (widget);
-    if (event->button == 1) {
-      box->box_down = TRUE;
-      gtk_widget_grab_focus (widget);
-    }
-  }
-
-  return TRUE;
-}
-
-static gboolean gridselect_box_button_release (GtkWidget *widget, GdkEventButton *event)
-{
-  GridBox *box;
-
-  if (event->type == GDK_BUTTON_RELEASE && gtk_widget_get_can_focus (widget))
-  {
-    box = GRIDSELECT_BOX (widget);
-    if (event->button == 1 && box->on_box && box->box_down)
-      gridselect_box_clicked (GRIDSELECT_BOX (widget));
-    box->box_down = FALSE;
-  }
-
-  return TRUE;
-}
-static gboolean gridselect_box_key_press (GtkWidget *widget, GdkEventKey *event)
-{
-  GridBox *box = GRIDSELECT_BOX (widget);
-  if ((event->keyval == GDK_Return ||
-      event->keyval == GDK_KP_Enter ||
-      event->keyval == GDK_ISO_Enter) &&
-      gtk_widget_get_can_focus (widget))
-  {
-    box->box_down = TRUE;
-  }
-  return FALSE;
-}
-
-static gboolean gridselect_box_key_release (GtkWidget *widget, GdkEventKey *event)
-{
-  GridBox *box = GRIDSELECT_BOX (widget);
-  if ((event->keyval == GDK_Return ||
-       event->keyval == GDK_KP_Enter ||
-       event->keyval == GDK_ISO_Enter) &&
-      box->box_down &&
-      gtk_widget_get_can_focus (widget))
-  {
-    gridselect_box_clicked (box);
-    box->box_down = FALSE;
-  }
-  return FALSE;
-}
-
-static gboolean gridselect_box_enter_notify (GtkWidget * widget, GdkEventCrossing * event)
-{
-  GridBox *box;
-  GtkWidget *event_widget;
-
-  box = GRIDSELECT_BOX (widget);
-  event_widget = gtk_get_event_widget ((GdkEvent *) event);
-
-  if ((event_widget == widget) && (event->detail != GDK_NOTIFY_INFERIOR)) {
-    box->on_box = TRUE;
-    gtk_widget_queue_draw (widget);
-  }
-
-  return FALSE;
-}
-
-static gboolean gridselect_box_leave_notify (GtkWidget * widget, GdkEventCrossing * event)
-{
-  GridBox *box;
-  GtkWidget *event_widget;
-
-  box = GRIDSELECT_BOX (widget);
-  event_widget = gtk_get_event_widget ((GdkEvent *) event);
-
-  if ((event_widget == widget) && (event->detail != GDK_NOTIFY_INFERIOR)) {
-    box->on_box = FALSE;
-    gtk_widget_queue_draw (widget);
-  }
-
-  return FALSE;
+  if (minimum) *minimum = size;
+  if (natural) *natural = size;
+  if (minimum_baseline) *minimum_baseline = -1;
+  if (natural_baseline) *natural_baseline = -1;
 }
 
 void gridselect_box_clicked (GridBox *box)

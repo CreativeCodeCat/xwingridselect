@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
-#include <gdk/gdkx.h>
+#include <gdk/x11/gdkx.h>
 #include <gtk/gtk.h>
 #include "x_interaction.h"
 
@@ -47,11 +47,26 @@ Atom a_NET_WM_WINDOW_TYPE_NORMAL;
 
 Atom a_NET_WM_STATE;
 Atom a_NET_WM_STATE_SKIP_TASKBAR;
+Atom a_NET_WM_STATE_SKIP_PAGER;
+Atom a_NET_WM_STATE_ABOVE;
+
+// Shortcuts to the default display/root window (GTK4 dropped the
+// gdk_x11_get_default_* convenience wrappers; GdkDisplay must be fetched
+// explicitly now).
+Display* x11_display ()
+{
+  return gdk_x11_display_get_xdisplay (gdk_display_get_default ());
+}
+
+Window x11_root ()
+{
+  return gdk_x11_display_get_xrootwindow (gdk_display_get_default ());
+}
 
 // Initialize Xatoms values.
 void atoms_init ()
 {
-  Display *dpy = (Display *)gdk_x11_get_default_xdisplay ();
+  Display *dpy = x11_display ();
 
   a_UTF8_STRING = XInternAtom (dpy, "UTF8_STRING", 0);
 
@@ -91,12 +106,14 @@ void atoms_init ()
 
   a_NET_WM_STATE = XInternAtom (dpy, "_NET_WM_STATE", 0);
   a_NET_WM_STATE_SKIP_TASKBAR = XInternAtom (dpy, "_NET_WM_STATE_SKIP_TASKBAR", 0);
+  a_NET_WM_STATE_SKIP_PAGER = XInternAtom (dpy, "_NET_WM_STATE_SKIP_PAGER", 0);
+  a_NET_WM_STATE_ABOVE = XInternAtom (dpy, "_NET_WM_STATE_ABOVE", 0);
 }
 
 // Get property for a window.
 void* property (Window win, Atom prop, Atom type, int *nitems)
 {
-  Display *dpy = (Display *)gdk_x11_get_default_xdisplay ();
+  Display *dpy = x11_display ();
   Atom type_ret;
   int format_ret;
   unsigned long items_ret;
@@ -127,7 +144,7 @@ void climsg(Window win, long type, long l0, long l1, long l2, long l3, long l4)
     xev.data.l[3] = l3;
     xev.data.l[4] = l4;
 
-    XSendEvent(gdk_x11_get_default_xdisplay (), gdk_x11_get_default_root_xwindow (), False,
+    XSendEvent(x11_display (), x11_root (), False,
           (SubstructureNotifyMask | SubstructureRedirectMask),
           (XEvent *)&xev);
 }
@@ -136,7 +153,7 @@ void climsg(Window win, long type, long l0, long l1, long l2, long l3, long l4)
 int wm_supports_ewmh ()
 {
   int supports = 0;
-  Window *wm = (Window *) property (gdk_x11_get_default_root_xwindow (),
+  Window *wm = (Window *) property (x11_root (),
 				    a_NET_SUPPORTING_WM_CHECK,
 				    XA_WINDOW, NULL);
   if (wm) {
@@ -246,7 +263,7 @@ gboolean filter_window (Window win, Window myown, int32_t cur_desktop, gboolean 
 // Returns a list of windows (except panels and other "non-normal" windows)
 Window* sorted_windows_list (Window *myown, Window *active_win, int *nitems, gboolean only_current)
 {
-  Window root_win = (Window)gdk_x11_get_default_root_xwindow ();
+  Window root_win = (Window)x11_root ();
   int32_t *cur_desktop = (int32_t *) property (root_win, a_NET_CURRENT_DESKTOP, XA_CARDINAL, NULL);
 
   int pre_size = 0;
@@ -321,7 +338,7 @@ Window* sorted_windows_list (Window *myown, Window *active_win, int *nitems, gbo
 // Switch to window and it's desktop.
 void switch_to_window (Window win)
 {
-  Window root_window = gdk_x11_get_default_root_xwindow ();
+  Window root_window = x11_root ();
   int32_t desktop = get_window_desktop (win);
   climsg (win, a_NET_ACTIVE_WINDOW, 2, CurrentTime, 0, 0, 0);
   if (desktop > -1) {
@@ -406,7 +423,7 @@ gboolean already_opened ()
 {
   int size = 0;
   gboolean opened = FALSE;
-  Window *win_list = (Window *) property (gdk_x11_get_default_root_xwindow (), a_NET_CLIENT_LIST, XA_WINDOW, &size);
+  Window *win_list = (Window *) property (x11_root (), a_NET_CLIENT_LIST, XA_WINDOW, &size);
   if (size) {
     for (int i = 0; i < size; i++) {
       gchar *wmclass = get_window_class (win_list [i]);

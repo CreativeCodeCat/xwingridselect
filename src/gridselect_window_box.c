@@ -26,7 +26,7 @@ static void gridselect_window_box_get_property (GObject *gobject,
 					    GValue *value,
 					    GParamSpec *pspec);
 
-static gboolean gridselect_window_box_expose_event (GtkWidget *widget, GdkEventExpose *event);
+static void gridselect_window_box_snapshot (GtkWidget *widget, GtkSnapshot *snapshot);
 static void gridselect_window_box_paint (GridWindowBox *box, cairo_t *cr, gint width, gint height);
 static void gridselect_window_box_create_colors (GridWindowBox *box);
 static void gridselect_window_box_setup_icon (GridWindowBox *box, GdkPixbuf *pixbuf);
@@ -49,7 +49,7 @@ gridselect_window_box_class_init (GridWindowBoxClass *klass)
   gobject_class->set_property = gridselect_window_box_set_property;
   gobject_class->get_property = gridselect_window_box_get_property;
 
-  widget_class->expose_event = gridselect_window_box_expose_event;
+  widget_class->snapshot = gridselect_window_box_snapshot;
 
   obj_properties[PROP_IS_WINDOW] =
     g_param_spec_boolean ("is-window",
@@ -236,20 +236,17 @@ static void gridselect_window_box_get_property (GObject *gobject,
   }
 }
 
-static gboolean
-gridselect_window_box_expose_event (GtkWidget *widget, GdkEventExpose *event)
+static void
+gridselect_window_box_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 {
-  g_return_val_if_fail (GRIDSELECT_IS_WINDOW_BOX (widget), FALSE);
+  g_return_if_fail (GRIDSELECT_IS_WINDOW_BOX (widget));
 
-  cairo_t *cr;
-  cr = gdk_cairo_create (widget->window);
-  cairo_rectangle (cr,
-		   event->area.x, event->area.y,
-		   event->area.width, event->area.height);
-  cairo_clip (cr);
-  gridselect_window_box_paint (GRIDSELECT_WINDOW_BOX (widget), cr, widget->allocation.width, widget->allocation.height);
+  int width = gtk_widget_get_width (widget);
+  int height = gtk_widget_get_height (widget);
+
+  cairo_t *cr = gtk_snapshot_append_cairo (snapshot, &GRAPHENE_RECT_INIT (0, 0, width, height));
+  gridselect_window_box_paint (GRIDSELECT_WINDOW_BOX (widget), cr, width, height);
   cairo_destroy (cr);
-  return TRUE;
 }
 
 static void
@@ -536,6 +533,42 @@ static void gridselect_window_box_create_colors (GridWindowBox *box)
   }
 }
 
+// GTK4's GtkIconTheme no longer hands back a GdkPixbuf directly (lookups
+// return a GtkIconPaintable, i.e. a GdkPaintable); render it through a
+// GtkSnapshot/GskRenderNode into a cairo surface and read that back into a
+// GdkPixbuf so the rest of this file can keep working with pixbufs exactly
+// as before.
+static GdkPixbuf* pixbuf_from_icon_name (GtkIconTheme *theme, const gchar *name, guint req_width, guint req_height)
+{
+  if (!name)
+    return NULL;
+
+  GtkIconPaintable *icon = gtk_icon_theme_lookup_icon (theme, name, NULL, req_width, 1,
+							GTK_TEXT_DIR_NONE,
+							GTK_ICON_LOOKUP_FORCE_REGULAR);
+  if (!icon)
+    return NULL;
+
+  GtkSnapshot *snapshot = gtk_snapshot_new ();
+  gdk_paintable_snapshot (GDK_PAINTABLE (icon), snapshot, req_width, req_height);
+  GskRenderNode *node = gtk_snapshot_free_to_node (snapshot);
+  g_object_unref (icon);
+
+  if (!node)
+    return NULL;
+
+  cairo_surface_t *surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, req_width, req_height);
+  cairo_t *cr = cairo_create (surface);
+  gsk_render_node_draw (node, cr);
+  cairo_destroy (cr);
+  gsk_render_node_unref (node);
+
+  GdkPixbuf *pixbuf = gdk_pixbuf_get_from_surface (surface, 0, 0, req_width, req_height);
+  cairo_surface_destroy (surface);
+
+  return pixbuf;
+}
+
 void gridselect_window_box_setup_icon_from_wm (GridWindowBox *box, guint req_width, guint req_height)
 {
   g_return_if_fail (GRIDSELECT_IS_WINDOW_BOX (box));
@@ -546,23 +579,14 @@ void gridselect_window_box_setup_icon_from_wm (GridWindowBox *box, guint req_wid
     gchar *class1 = g_ascii_strdown (box->opt_name, -1);
     gchar *class2 = g_ascii_strdown (box->opt_name+strlen (class1)+1, -1);
 
-    GtkIconTheme *theme = gtk_icon_theme_get_default ();
-    pixbuf = gtk_icon_theme_load_icon (theme, class1, req_width,
-				       GTK_ICON_LOOKUP_USE_BUILTIN |
-				       GTK_ICON_LOOKUP_GENERIC_FALLBACK,
-				       NULL);
+    GtkIconTheme *theme = gtk_icon_theme_get_for_display (gdk_display_get_default ());
+    pixbuf = pixbuf_from_icon_name (theme, class1, req_width, req_height);
 
     if (!pixbuf)
-      pixbuf = gtk_icon_theme_load_icon (theme, class2, req_width,
-					 GTK_ICON_LOOKUP_USE_BUILTIN |
-					 GTK_ICON_LOOKUP_GENERIC_FALLBACK,
-					 NULL);
+      pixbuf = pixbuf_from_icon_name (theme, class2, req_width, req_height);
 
     if (!pixbuf)
-      pixbuf = gtk_icon_theme_load_icon (theme, "application-x-executable", req_width,
-					 GTK_ICON_LOOKUP_USE_BUILTIN |
-					 GTK_ICON_LOOKUP_GENERIC_FALLBACK,
-					 NULL);
+      pixbuf = pixbuf_from_icon_name (theme, "application-x-executable", req_width, req_height);
     g_free (class1);
     g_free (class2);
   }
@@ -578,11 +602,8 @@ void gridselect_window_box_setup_icon_from_theme (GridWindowBox *box, const gcha
 {
   g_return_if_fail (GRIDSELECT_IS_WINDOW_BOX (box));
 
-  GtkIconTheme *theme = gtk_icon_theme_get_default ();
-  GdkPixbuf *pixbuf = gtk_icon_theme_load_icon (theme, name, req_width,
-				     GTK_ICON_LOOKUP_USE_BUILTIN |
-				     GTK_ICON_LOOKUP_GENERIC_FALLBACK,
-				     NULL);
+  GtkIconTheme *theme = gtk_icon_theme_get_for_display (gdk_display_get_default ());
+  GdkPixbuf *pixbuf = pixbuf_from_icon_name (theme, name, req_width, req_height);
 
   if (!pixbuf) {
     box->has_icon = FALSE;

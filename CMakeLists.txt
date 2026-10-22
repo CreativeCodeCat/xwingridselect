@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.8)
+cmake_minimum_required (VERSION 3.10)
 project (XWinGridSelect C)
 
 OPTION (WITH_SCRIPTS "Install extra scripts" OFF)

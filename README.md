@@ -4,7 +4,7 @@ XWinGridSelect
 X11 window switcher that draws windows list as a colorful grid
 ------------------------------------------------------------
 
-Inspired by [XMonad.Actions.GridSelect](https://xmonad.github.io/xmonad-docs/xmonad-contrib/XMonad-Actions-GridSelect.html), but written in C + GTK+2, uses nice-looking colors and has some set of helpful features.
+Inspired by [XMonad.Actions.GridSelect](https://xmonad.github.io/xmonad-docs/xmonad-contrib/XMonad-Actions-GridSelect.html), but written in C + GTK4, uses nice-looking colors and has some set of helpful features.
 
 ![xwingridselect's screenshot](/contrib/images/1920x1080_xwingridselect.png "Screenshot")
 
@@ -51,7 +51,7 @@ Config file is created automatically on a first program run and stored in `~/.co
 ### Dependencies:
 
 * [EWMH compatible Window Manager](http://en.wikipedia.org/wiki/Extended_Window_Manager_Hints)
-* GTK+2
+* GTK4
 * CMake
 
 

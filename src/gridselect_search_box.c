@@ -31,9 +31,10 @@ static void gridselect_search_box_get_property (GObject *gobject,
 					    GValue *value,
 					    GParamSpec *pspec);
 
-static gboolean gridselect_search_box_expose_event (GtkWidget *widget, GdkEventExpose *event);
+static void gridselect_search_box_snapshot (GtkWidget *widget, GtkSnapshot *snapshot);
 static void gridselect_search_box_paint (GridSearchBox *box, cairo_t *cr, gint width, gint height);
-static void gridselect_search_box_size_request (GtkWidget *widget, GtkRequisition *requisition);
+static void gridselect_search_box_measure (GtkWidget *widget, GtkOrientation orientation, int for_size,
+					    int *minimum, int *natural, int *minimum_baseline, int *natural_baseline);
 
 static guint search_box_signals[LAST_SIGNAL] = { 0 };
 static GParamSpec *obj_properties[N_PROPERTIES] = { NULL };
@@ -54,8 +55,8 @@ gridselect_search_box_class_init (GridSearchBoxClass *klass)
   gobject_class->set_property = gridselect_search_box_set_property;
   gobject_class->get_property = gridselect_search_box_get_property;
 
-  widget_class->expose_event = gridselect_search_box_expose_event;
-  widget_class->size_request = gridselect_search_box_size_request;
+  widget_class->snapshot = gridselect_search_box_snapshot;
+  widget_class->measure = gridselect_search_box_measure;
 
   obj_properties[PROP_TEXT] =
     g_param_spec_string ("text",
@@ -80,7 +81,7 @@ gridselect_search_box_class_init (GridSearchBoxClass *klass)
 static void
 gridselect_search_box_init (GridSearchBox *box)
 {
-  gtk_widget_set_can_focus (GTK_WIDGET (box), FALSE);
+  gtk_widget_set_focusable (GTK_WIDGET (box), FALSE);
   gtk_widget_set_receives_default (GTK_WIDGET (box), FALSE);
 }
 
@@ -152,20 +153,17 @@ static void gridselect_search_box_get_property (GObject *gobject,
   }
 }
 
-static gboolean
-gridselect_search_box_expose_event (GtkWidget *widget, GdkEventExpose *event)
+static void
+gridselect_search_box_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 {
-  g_return_val_if_fail (GRIDSELECT_IS_SEARCH_BOX (widget), FALSE);
+  g_return_if_fail (GRIDSELECT_IS_SEARCH_BOX (widget));
 
-  cairo_t *cr;
-  cr = gdk_cairo_create (widget->window);
-  cairo_rectangle (cr,
-		   event->area.x, event->area.y,
-		   event->area.width, event->area.height);
-  cairo_clip (cr);
-  gridselect_search_box_paint (GRIDSELECT_SEARCH_BOX (widget), cr, widget->allocation.width, widget->allocation.height);
+  int width = gtk_widget_get_width (widget);
+  int height = gtk_widget_get_height (widget);
+
+  cairo_t *cr = gtk_snapshot_append_cairo (snapshot, &GRAPHENE_RECT_INIT (0, 0, width, height));
+  gridselect_search_box_paint (GRIDSELECT_SEARCH_BOX (widget), cr, width, height);
   cairo_destroy (cr);
-  return TRUE;
 }
 
 static void
@@ -205,8 +203,18 @@ gridselect_search_box_paint (GridSearchBox *box, cairo_t *cr, gint width, gint h
   gridselect_box_paint (GRIDSELECT_BOX (box), cr, width, height);
 }
 
-static void gridselect_search_box_size_request (GtkWidget *widget, GtkRequisition *requisition)
+static void gridselect_search_box_measure (GtkWidget *widget, GtkOrientation orientation, int for_size,
+					    int *minimum, int *natural, int *minimum_baseline, int *natural_baseline)
 {
+  if (minimum_baseline) *minimum_baseline = -1;
+  if (natural_baseline) *natural_baseline = -1;
+
+  if (orientation == GTK_ORIENTATION_HORIZONTAL) {
+    if (minimum) *minimum = BOX_DEFAULT_WIDTH;
+    if (natural) *natural = BOX_DEFAULT_WIDTH;
+    return;
+  }
+
   PangoLayout *pl = gtk_widget_create_pango_layout (widget, "|");
   PangoFontDescription *pfd = pango_font_description_from_string (GRIDSELECT_BOX (widget)->font);
   pango_layout_set_font_description (pl, pfd);
@@ -214,10 +222,10 @@ static void gridselect_search_box_size_request (GtkWidget *widget, GtkRequisitio
 
   int pwidth, pheight;
   pango_layout_get_pixel_size (pl, &pwidth, &pheight);
-
-  requisition->width = BOX_DEFAULT_WIDTH;
-  requisition->height = pheight + 10;
   g_object_unref (pl);
+
+  if (minimum) *minimum = pheight + 10;
+  if (natural) *natural = pheight + 10;
 }
 
 void
