@@ -1206,7 +1206,7 @@ static void write_default_config ()
             fprintf (config, "screenshot_offset_x = %d\n", options.screenshot_offset_x);
             fprintf (config, "screenshot_offset_y = %d\n", options.screenshot_offset_y);
             fprintf (config, "at_pointer = %s\n", (options.at_pointer) ? "true" : "false");
-            fprintf (config, "# color_file = /path/to/file\n");
+            fprintf (config, "# color_file = %s/colors\n", confdir);
             fclose (config);
         }
     }
